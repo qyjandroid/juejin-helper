@@ -119,25 +119,34 @@ class Seagold {
   }
 
   async executeGameCommand() {
-    const bmmap = this.getBMMap();
-    const curNode = this.getNode(this.gameInfo.curPos);
-    const bestNode = this.getBestNode(bmmap);
-    const path = this.getRoutePath(bmmap, curNode, bestNode);
-    if (!Array.isArray(path)) {
-      throw new Error(
-        `路径 ${JSON.stringify(path)} 无法在地图 ${JSON.stringify(this.getMaze(bmmap))} 行进.`
-      );
-    }
-    const commands = this.getCommands(path);
-    if (commands.length <= 0) {
+    try{
+      const bmmap = this.getBMMap();
+      const curNode = this.getNode(this.gameInfo.curPos);
+      const bestNode = this.getBestNode(bmmap);
+      const path = this.getRoutePath(bmmap, curNode, bestNode);
+      if (!Array.isArray(path)) {
+        throw new Error(
+          `路径 ${JSON.stringify(path)} 无法在地图 ${JSON.stringify(this.getMaze(bmmap))} 行进.`
+        );
+      }
+      const commands = this.getCommands(path);
+      if (commands.length <= 0) {
+        return false;
+      }
+      //4 左跳，  2：下跳，  6：右跳   8：上跳， 循环：{command:[],times:循环次数}
+      //格式：command:["D","L","R"]
+      // 格式: command:[{command:["D","R","D","2","L",{command:["D","L"],times:8}],times:10}]
+      const gameCommandInfo = await this.gameApi.gameCommand(this.gameInfo.gameId, commands);
+      this.gameInfo.curPos = gameCommandInfo.curPos;
+      this.gameInfo.blockData = gameCommandInfo.blockData;
+      this.gameInfo.gameDiamond = gameCommandInfo.gameDiamond;
+      return true;
+    }catch(e){
+      console.log("执行出错:",e);
+    }finally{
       return false;
     }
-    const gameCommandInfo = await this.gameApi.gameCommand(this.gameInfo.gameId, commands);
-    this.gameInfo.curPos = gameCommandInfo.curPos;
-    this.gameInfo.blockData = gameCommandInfo.blockData;
-    this.gameInfo.gameDiamond = gameCommandInfo.gameDiamond;
-
-    return true;
+    
   }
 
   getCommand(start, end) {
