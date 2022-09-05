@@ -1,4 +1,4 @@
-const JuejinHelper = require("juejin-helper");
+const JuejinHelper = require("juejin-helper2");
 const utils = require("./utils/utils");
 const pushMessage = require("./utils/pushMessage");
 const env = require("./utils/env");

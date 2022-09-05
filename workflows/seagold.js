@@ -1,4 +1,4 @@
-const JuejinHelper = require("juejin-helper");
+const JuejinHelper = require("juejin-helper2");
 const utils = require("./utils/utils");
 const {Grid, Astar} = require("fast-astar");
 const pushMessage = require("./utils/pushMessage");
@@ -86,6 +86,8 @@ class Seagold {
 
   async gameStart() {
     if (this.isGaming) return;
+    const result =await this.gameApi.gameFresh();
+    console.log("刷新地图结果==",result);
     const roleId = Math.ceil(Math.random() * 3);
     const gameInfo = await this.gameApi.gameStart({roleId});
 
@@ -122,8 +124,10 @@ class Seagold {
     try{
       const bmmap = this.getBMMap();
       const curNode = this.getNode(this.gameInfo.curPos);
-      const bestNode = this.getBestNode(bmmap);
-      const path = this.getRoutePath(bmmap, curNode, bestNode);
+      // const bestNode = this.getBestNode(bmmap);
+      // const path = this.getRoutePath(bmmap, curNode, bestNode);
+      const bestNodeResult = this.getBestNode(bmmap);
+      const path = this.getRoutePath(bmmap, curNode, bestNodeResult);
       if (!Array.isArray(path)) {
         throw new Error(
           `路径 ${JSON.stringify(path)} 无法在地图 ${JSON.stringify(this.getMaze(bmmap))} 行进.`
@@ -166,13 +170,49 @@ class Seagold {
 
   getCommands(path) {
     const commands = [];
+    //格式: command:[{command:["D","R","D","2","L",{command:["D","L"],times:8}],times:10}]
+    let limitLoopCount= this.gameInfo.blockData.loop;
+    let newCommand=null;
+    let preCommand=null;
+    console.log("当前的path===",path);
     for (let i = 0; i < path.length - 1; i++) {
       const cmd = this.getCommand(path[i], path[i + 1]);
       if (!cmd) {
         throw new Error(`路径错误: ${i}->${i + 1}`);
       }
-      commands.push(cmd);
+      if(preCommand && preCommand!==cmd){
+        if(newCommand){
+          commands.push(newCommand);
+        }else if(preCommand){
+          commands.push(preCommand);
+        }
+        newCommand=null;
+      }else if(!preCommand){
+        preCommand=cmd;
+      }else{
+        if(limitLoopCount>0){
+          if(!newCommand){
+            newCommand={command:[cmd],times:1}
+          }else{
+            newCommand.times= newCommand.times+1;
+          }
+          limitLoopCount=limitLoopCount-1;
+        }else{
+          //没有循环次数了，直接存放上一次的。
+          commands.push(preCommand);
+        }
+        
+      }
+      preCommand=cmd;
     }
+
+     if(preCommand && newCommand && preCommand === newCommand.command[0]){
+      newCommand.times= newCommand.times+1;
+      commands.push(newCommand);
+     }else{
+       commands.push(preCommand);
+     }
+    console.log("当前的commands===",commands);
     return commands;
   }
 
@@ -189,10 +229,10 @@ class Seagold {
     return {x: 0, y: 0};
   }
 
-  getRoutePath(map, startNode, endNode) {
+  getRoutePath(map, startNode, bestNodeArray) {
     const maze = this.generateMapMaze(map);
     const startPos = this.getNodePosition(map, startNode);
-    const endPos = this.getNodePosition(map, endNode);
+    // const endPos = this.getNodePosition(map, endNode);
 
     if (this.debug) {
       console.log("地图", this.getMaze(map));
@@ -200,13 +240,30 @@ class Seagold {
       console.log("结束位置", endPos);
     }
 
+    // const astar = new Astar(maze);
+    // const path = astar.search([startPos.x, startPos.y], [endPos.x, endPos.y], {
+    //   rightAngle: true,
+    //   optimalResult: true
+    // });
     const astar = new Astar(maze);
-    const path = astar.search([startPos.x, startPos.y], [endPos.x, endPos.y], {
-      rightAngle: true,
-      optimalResult: true
-    });
-
+    const path = this.getBestPath(map,bestNodeArray,astar,startPos);
     return path;
+  }
+
+  
+  getBestPath(map,bestNodeArray,astar,startPos){
+     for(let i=0;i<bestNodeArray.length;i++){
+      const curNode=bestNodeArray[i];
+      const endPos = this.getNodePosition(map, curNode);
+      const path = astar.search([startPos.x, startPos.y], [endPos.x, endPos.y], {
+        rightAngle: true,
+        optimalResult: true
+      });
+      if(path){
+        return path;
+      }
+     }
+     return null;
   }
 
   makeMap(mapData, grid = 6) {
@@ -258,10 +315,27 @@ class Seagold {
     return this.gameInfo.mapData[pos.y][pos.x];
   }
 
+  // getBestNode(map) {
+  //   let bestNode = null;
+  //   map.forEach((row) => {
+  //     row.forEach((node) => {
+  //       if (node.isBest && bestNode === null) {
+  //         bestNode = node;
+  //       } else if (node.isBest && node.bounty > bestNode.bounty) {
+  //         bestNode = node;
+  //       }
+  //     });
+  //   });
+  //   return bestNode;
+  // }
+
   getBestNode(map) {
-    let bestNode = null;
+    let bestNode = null,instructionsNodeList=[];
     map.forEach((row) => {
       row.forEach((node) => {
+        if(node.code>=10){
+          instructionsNodeList.push(node);
+        }
         if (node.isBest && bestNode === null) {
           bestNode = node;
         } else if (node.isBest && node.bounty > bestNode.bounty) {
@@ -269,7 +343,10 @@ class Seagold {
         }
       });
     });
-    return bestNode;
+    if(bestNode){
+      instructionsNodeList.unshift(bestNode);
+    }
+    return instructionsNodeList;
   }
 
   getMaze(map) {
@@ -348,21 +425,34 @@ class Seagold {
       }
 
       await this.gameStart();
-
-      while (await this.executeGameCommand()) {
+      try{
+        await this.executeGameCommand();
         await utils.wait(utils.randomRangeNumber(1000, 1500));
-
+  
         if (runTime >= runEndTime) {
           throw Error(`掘金游戏异常: 服务运行时间过长.`);
         }
 
         runTime = new Date();
+      }catch(e){
+        console.log("执行出错：",e);
+      }finally{
+        return await this.gameOver();
       }
+      // while (await this.executeGameCommand()) {
+      //   await utils.wait(utils.randomRangeNumber(1000, 1500));
 
-      return await this.gameOver();
+      //   if (runTime >= runEndTime) {
+      //     throw Error(`掘金游戏异常: 服务运行时间过长.`);
+      //   }
+
+      //   runTime = new Date();
+      // }
+
+      // return await this.gameOver();
     };
 
-    const maxZeroCount = 5;
+    const maxZeroCount = 15;
     let zeroCount = 0;
 
     if (info.gameStatus === 1) {
@@ -371,27 +461,30 @@ class Seagold {
     } else {
       this.resetGame();
     }
-
-    while (this.userInfo.todayDiamond < this.userInfo.todayLimitDiamond) {
-      if (runTime >= runEndTime) {
-        throw Error(`掘金游戏异常: 服务运行时间过长.`);
+    try{
+      while (this.userInfo.todayDiamond < this.userInfo.todayLimitDiamond) {
+        if (runTime >= runEndTime) {
+          throw Error(`掘金游戏异常: 服务运行时间过长.`);
+        }
+  
+        if (zeroCount > maxZeroCount) {
+          throw new Error("掘金游戏异常: 您 0 矿石游戏对局次数过多.");
+        }
+  
+        await utils.wait(utils.randomRangeNumber(1000, 5000));
+        const gameOverInfo = await runGame();
+  
+        if (gameOverInfo.gameDiamond === 0) {
+          zeroCount++;
+        }
+  
+        runTime = new Date();
       }
-
-      if (zeroCount > maxZeroCount) {
-        throw new Error("掘金游戏异常: 您 0 矿石游戏对局次数过多.");
-      }
-
-      await utils.wait(utils.randomRangeNumber(1000, 5000));
-      const gameOverInfo = await runGame();
-
-      if (gameOverInfo.gameDiamond === 0) {
-        zeroCount++;
-      }
-
-      runTime = new Date();
+    }catch(e){
+      console.log("执行出了啊啊==",e)
+    }finally{
+      await juejin.logout();
     }
-
-    await juejin.logout();
   }
 
   toString() {
