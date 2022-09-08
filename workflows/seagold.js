@@ -471,7 +471,7 @@ class Seagold {
           throw new Error("掘金游戏异常: 您 0 矿石游戏对局次数过多.");
         }
   
-        await utils.wait(utils.randomRangeNumber(1000, 5000));
+        await utils.wait(utils.randomRangeNumber(10000, 13000));
         const gameOverInfo = await runGame();
   
         if (gameOverInfo.gameDiamond === 0) {
@@ -512,7 +512,7 @@ async function run(args) {
   for (let cookie of cookies) {
     const seaGold = new Seagold(cookie);
 
-    await utils.wait(utils.randomRangeNumber(1000, 5000)); // 初始等待1-5s
+    await utils.wait(utils.randomRangeNumber(3000, 6000)); // 初始等待1-5s
     await seaGold.run();
 
     const content = seaGold.toString();
